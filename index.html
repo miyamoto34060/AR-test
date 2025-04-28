@@ -16,30 +16,22 @@
 
         <script>
         window.onload = () => {
-            const files = [
-                { url: 'point.geojson', color: 'red' },
-                { url: 'line_points.geojson', color: 'blue' },
-                { url: 'polygon_centroids.geojson', color: 'green' }
-            ];
+            axios.get('line_points.geojson').then(res => {
+                let features = res.data.features;
 
-            files.forEach(file => {
-                axios.get(file.url).then(res => {
-                    let features = res.data.features;
+                features.forEach(feature => {
+                    let coords = feature.geometry.coordinates;
+                    let lon = coords[0];
+                    let lat = coords[1];
 
-                    features.forEach(feature => {
-                        let coords = feature.geometry.coordinates;
-                        let lon = coords[0];
-                        let lat = coords[1];
+                    const marker = document.createElement('a-sphere');
+                    marker.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon}`);
+                    marker.setAttribute('radius', '0.5');
+                    marker.setAttribute('color', 'blue'); // ラインだから青にしてます
 
-                        const marker = document.createElement('a-sphere');
-                        marker.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon}`);
-                        marker.setAttribute('radius', '0.5');
-                        marker.setAttribute('color', file.color);
-
-                        document.querySelector('a-scene').appendChild(marker);
-                    });
-                }).catch(err => console.error(err));
-            });
+                    document.querySelector('a-scene').appendChild(marker);
+                });
+            }).catch(err => console.error(err));
         };
         </script>
 
