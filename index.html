@@ -16,7 +16,7 @@
 
         <script>
         window.onload = () => {
-            axios.get('line_points.geojson').then(res => {
+            axios.get('line_to_points.geojson').then(res => {
                 let features = res.data.features;
 
                 features.forEach(feature => {
