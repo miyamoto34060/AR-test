@@ -16,22 +16,29 @@
 
         <script>
         window.onload = () => {
-            axios.get('line_to_points.geojson').then(res => {
+            axios.get('line_to_points.geojson')
+            .then(res => {
                 let features = res.data.features;
 
                 features.forEach(feature => {
-                    let coords = feature.geometry.coordinates;
-                    let lon = coords[0];
-                    let lat = coords[1];
+                    if (feature.geometry.type === "Point") {
+                        let coords = feature.geometry.coordinates;
+                        let lon = parseFloat(coords[0]);
+                        let lat = parseFloat(coords[1]);
+                        
+                        // デバッグ用にコンソールに座標を出力
+                        console.log(`lat: ${lat}, lon: ${lon}`);
 
-                    const marker = document.createElement('a-sphere');
-                    marker.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon}`);
-                    marker.setAttribute('radius', '0.5');
-                    marker.setAttribute('color', 'blue');
+                        const marker = document.createElement('a-sphere');
+                        marker.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon}`);
+                        marker.setAttribute('radius', '0.5');
+                        marker.setAttribute('color', 'blue');
 
-                    document.querySelector('a-scene').appendChild(marker);
+                        document.querySelector('a-scene').appendChild(marker);
+                    }
                 });
-            }).catch(err => console.error(err));
+            })
+            .catch(err => console.error(err));
         };
         </script>
 
