@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -44,3 +45,52 @@
   </a-scene>
 </body>
 </html>
+=======
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>Simple WebAR-Test</title>
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.min.js"></script>
+  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+  <style>
+    html, body { margin: 0; overflow: hidden; }
+    a-scene { height: 100vh; width: 100vw; }
+  </style>
+</head>
+<body>
+  <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: true;">
+    <a-camera gps-camera rotation-reader></a-camera>
+
+    <script>
+    window.onload = () => {
+        axios.get('line_to_points.geojson')
+        .then(res => {
+            let features = res.data.features;
+            features.forEach(feature => {
+                if (feature.geometry.type === "Point") {
+                    let coords = feature.geometry.coordinates;
+                    let lon = parseFloat(coords[0]);
+                    let lat = parseFloat(coords[1]);
+
+                    console.log(`読み込んだ座標: lat=${lat}, lon=${lon}`);
+
+                    const marker = document.createElement('a-sphere');
+                    marker.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon}`);
+                    marker.setAttribute('position', {x: 0, y: -1.0, z: 0});
+                    marker.setAttribute('radius', '5');
+                    marker.setAttribute('color', 'blue');
+
+                    document.querySelector('a-scene').appendChild(marker);
+                }
+            });
+        })
+        .catch(err => console.error('GeoJSON読み込み失敗:', err));
+    };
+    </script>
+
+  </a-scene>
+</body>
+</html>
+>>>>>>> 62c9dae (初回変更)
