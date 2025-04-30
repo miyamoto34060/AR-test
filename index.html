@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <title>Simple WebAR Test</title>
+  <title>Simple WebAR Test with GPS平滑化</title>
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.min.js"></script>
   <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
@@ -10,35 +10,71 @@
     html, body { margin: 0; overflow: hidden; }
     a-scene { height: 100vh; width: 100vw; }
   </style>
+
+  <!-- ▼ GPS平滑化ロジックをここに挿入 -->
+  <script>
+    (function(){
+      // 元の watchPosition を保持
+      const origWatch = navigator.geolocation.watchPosition.bind(navigator.geolocation);
+      const windowSize = 5, alpha = 0.2;
+      let latBuf = [], lonBuf = [], emaLat, emaLon;
+
+      navigator.geolocation.watchPosition = function(success, error, options) {
+        return origWatch(function(pos) {
+          const rawLat = pos.coords.latitude;
+          const rawLon = pos.coords.longitude;
+
+          // 1) 移動平均
+          latBuf.push(rawLat); if (latBuf.length > windowSize) latBuf.shift();
+          lonBuf.push(rawLon); if (lonBuf.length > windowSize) lonBuf.shift();
+          const avgLat = latBuf.reduce((a,b)=>a+b,0) / latBuf.length;
+          const avgLon = lonBuf.reduce((a,b)=>a+b,0) / lonBuf.length;
+
+          // 2) EMA
+          if (emaLat === undefined) {
+            emaLat = avgLat; emaLon = avgLon;
+          } else {
+            emaLat = alpha * avgLat + (1 - alpha) * emaLat;
+            emaLon = alpha * avgLon + (1 - alpha) * emaLon;
+          }
+
+          // 平滑化後の値を上書き
+          pos.coords.latitude  = emaLat;
+          pos.coords.longitude = emaLon;
+
+          success(pos);
+        }, error, options);
+      };
+    })();
+  </script>
+  <!-- ▲ ここまで GPS平滑化ロジック -->
 </head>
 <body>
   <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: true;">
     <a-camera gps-camera rotation-reader></a-camera>
 
     <script>
-    window.onload = () => {
+      window.onload = () => {
         axios.get('line_to_points.geojson')
-        .then(res => {
-            let features = res.data.features;
+          .then(res => {
+            const features = res.data.features;
             features.forEach(feature => {
-                if (feature.geometry.type === "Point") {
-                    let coords = feature.geometry.coordinates;
-                    let lon = parseFloat(coords[0]);
-                    let lat = parseFloat(coords[1]);
+              if (feature.geometry.type === "Point") {
+                const [lon, lat] = feature.geometry.coordinates.map(parseFloat);
 
-                    console.log(`読み込んだ座標: lat=${lat}, lon=${lon}`);
+                console.log(`読み込んだ座標: lat=${lat}, lon=${lon}`);
 
-                    const marker = document.createElement('a-sphere');
-                    marker.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon}`);
-                    marker.setAttribute('radius', '0.5');
-                    marker.setAttribute('color', 'blue');
+                const marker = document.createElement('a-sphere');
+                marker.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon}`);
+                marker.setAttribute('radius', '0.5');
+                marker.setAttribute('color', 'blue');
 
-                    document.querySelector('a-scene').appendChild(marker);
-                }
+                document.querySelector('a-scene').appendChild(marker);
+              }
             });
-        })
-        .catch(err => console.error('GeoJSON読み込み失敗:', err));
-    };
+          })
+          .catch(err => console.error('GeoJSON読み込み失敗:', err));
+      };
     </script>
 
   </a-scene>
