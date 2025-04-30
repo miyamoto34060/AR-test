@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <title>Simple WebAR Test</title>
+  <meta charset="utf-8" />
+  <title>WebAR GPS + IMU センサー融合デモ</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.min.js"></script>
   <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
@@ -10,37 +11,93 @@
     html, body { margin: 0; overflow: hidden; }
     a-scene { height: 100vh; width: 100vw; }
   </style>
+
+  <!-- ▼ センサー融合ロジック（GPS + 移動平均 + EMA + 加速度統合） -->
+  <script>
+  (function(){
+    // 元の watchPosition を保持
+    const origWatch = navigator.geolocation.watchPosition.bind(navigator.geolocation);
+
+    // 平滑化パラメータ
+    const windowSize = 5, alpha = 0.2;
+    let latBuf = [], lonBuf = [], emaLat, emaLon;
+
+    // IMU（加速度）による速度・位置推定用
+    let velX = 0, velY = 0, lastMotionTime = null;
+    window.addEventListener('devicemotion', e => {
+      const t = e.timeStamp;
+      if (lastMotionTime !== null) {
+        const dt = (t - lastMotionTime) / 1000; // ms→s
+        // 単純化のため、device axes = East(North)方向と仮定
+        const ax = e.acceleration.x || 0;  // 東西加速度 (m/s²)
+        const ay = e.acceleration.y || 0;  // 南北加速度 (m/s²)
+        velX += ax * dt;
+        velY += ay * dt;
+      }
+      lastMotionTime = t;
+    });
+
+    navigator.geolocation.watchPosition = function(success, error, options) {
+      return origWatch(function(pos) {
+        // 1) GPS 平滑化（移動平均 + EMA）
+        const rawLat = pos.coords.latitude,
+              rawLon = pos.coords.longitude;
+        latBuf.push(rawLat); if (latBuf.length>windowSize) latBuf.shift();
+        lonBuf.push(rawLon); if (lonBuf.length>windowSize) lonBuf.shift();
+        const avgLat = latBuf.reduce((a,b)=>a+b,0)/latBuf.length;
+        const avgLon = lonBuf.reduce((a,b)=>a+b,0)/lonBuf.length;
+        if (emaLat===undefined) {
+          emaLat = avgLat; emaLon = avgLon;
+        } else {
+          emaLat = alpha * avgLat + (1-alpha)*emaLat;
+          emaLon = alpha * avgLon + (1-alpha)*emaLon;
+        }
+
+        // 2) IMU（加速度）を緯度経度に変換して補正
+        //    おおよその換算: 1度≈111000m、経度は緯度に応じて1度≈111000*cos(lat)
+        const mPerDeg = 111000;
+        // デバイス回転は考慮せず、単純にX→lon, Y→latと仮定
+        const dLat = (velY * (pos.timestamp? (pos.timestamp - lastMotionTime)/1000 : 0)) / mPerDeg;
+        const dLon = (velX * (pos.timestamp? (pos.timestamp - lastMotionTime)/1000 : 0)) 
+                     / (mPerDeg * Math.cos(emaLat * Math.PI/180));
+
+        // 最終的に GPS+IMU 補正値をセット
+        pos.coords.latitude  = emaLat + dLat;
+        pos.coords.longitude = emaLon + dLon;
+
+        success(pos);
+      }, error, options);
+    };
+  })();
+  </script>
+  <!-- ▲ センサー融合ロジックここまで -->
 </head>
+
 <body>
   <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: true;">
     <a-camera gps-camera rotation-reader></a-camera>
 
     <script>
     window.onload = () => {
-        axios.get('line_to_points.geojson')
+      axios.get('line_to_points.geojson')
         .then(res => {
-            let features = res.data.features;
-            features.forEach(feature => {
-                if (feature.geometry.type === "Point") {
-                    let coords = feature.geometry.coordinates;
-                    let lon = parseFloat(coords[0]);
-                    let lat = parseFloat(coords[1]);
+          res.data.features.forEach(feature => {
+            if (feature.geometry.type === "Point") {
+              const [lon, lat] = feature.geometry.coordinates.map(parseFloat);
 
-                    console.log(`読み込んだ座標: lat=${lat}, lon=${lon}`);
+              console.log(`読み込んだ座標: lat=${lat}, lon=${lon}`);
 
-                    const marker = document.createElement('a-sphere');
-                    marker.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon}`);
-                    marker.setAttribute('radius', '0.5');
-                    marker.setAttribute('color', 'blue');
-
-                    document.querySelector('a-scene').appendChild(marker);
-                }
-            });
+              const marker = document.createElement('a-sphere');
+              marker.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon}`);
+              marker.setAttribute('radius', '0.5');
+              marker.setAttribute('color', 'blue');
+              document.querySelector('a-scene').appendChild(marker);
+            }
+          });
         })
         .catch(err => console.error('GeoJSON読み込み失敗:', err));
     };
     </script>
-
   </a-scene>
 </body>
 </html>
