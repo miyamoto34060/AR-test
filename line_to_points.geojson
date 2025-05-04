@@ -26,6 +26,10 @@
 { "type": "Feature", "properties": { "id": null, "vertex_index": null, "vertex_part": null, "vertex_part_index": null, "distance": null, "angle": null }, "geometry": { "type": "Point", "coordinates": [ 142.417962813745106, 43.791149201586336, 0.0 ] } },
 { "type": "Feature", "properties": { "id": null, "vertex_index": null, "vertex_part": null, "vertex_part_index": null, "distance": null, "angle": null }, "geometry": { "type": "Point", "coordinates": [ 142.418013400187078, 43.791172193571988, 0.0 ] } },
 { "type": "Feature", "properties": { "id": null, "vertex_index": null, "vertex_part": null, "vertex_part_index": null, "distance": null, "angle": null }, "geometry": { "type": "Point", "coordinates": [ 142.417902859443473, 43.791109303707863, 0.0 ] } },
-{ "type": "Feature", "properties": { "id": null, "vertex_index": null, "vertex_part": null, "vertex_part_index": null, "distance": null, "angle": null }, "geometry": { "type": "Point", "coordinates": [ 142.417922531948705, 43.791084959226581, 0.0 ] } }
+{ "type": "Feature", "properties": { "id": null, "vertex_index": null, "vertex_part": null, "vertex_part_index": null, "distance": null, "angle": null }, "geometry": { "type": "Point", "coordinates": [ 142.417922531948705, 43.791084959226581, 0.0 ] } },
+{ "type": "Feature", "properties": { "id": null, "vertex_index": null, "vertex_part": null, "vertex_part_index": null, "distance": null, "angle": null }, "geometry": { "type": "Point", "coordinates": [ 141.640235458276123, 43.939822718693392, 0.0 ] } },
+{ "type": "Feature", "properties": { "id": null, "vertex_index": null, "vertex_part": null, "vertex_part_index": null, "distance": null, "angle": null }, "geometry": { "type": "Point", "coordinates": [ 141.640311712434084, 43.939888014960843, 0.0 ] } },
+{ "type": "Feature", "properties": { "id": null, "vertex_index": null, "vertex_part": null, "vertex_part_index": null, "distance": null, "angle": null }, "geometry": { "type": "Point", "coordinates": [ 141.640276676739859, 43.939859818854153, 0.0 ] } },
+{ "type": "Feature", "properties": { "id": null, "vertex_index": null, "vertex_part": null, "vertex_part_index": null, "distance": null, "angle": null }, "geometry": { "type": "Point", "coordinates": [ 141.640196300735568, 43.939788586525054, 0.0 ] } }
 ]
 }
