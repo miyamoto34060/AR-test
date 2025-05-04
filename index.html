@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <title>WebAR 静的配置＋センサー融合＋リロード</title>
+  <title>WebAR キャリブレーション付き静的配置＋センサー融合＋リロード</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <!-- A-Frame, AR.js, Axios -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
@@ -11,87 +11,81 @@
   <style>
     html, body { margin: 0; overflow: hidden; }
     a-scene { height: 100vh; width: 100vw; }
-    /* 再読み込みボタン */
     #reloadBtn {
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      z-index: 10000;
-      padding: 8px 12px;
-      background: rgba(0,0,0,0.6);
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      font-size: 14px;
+      position: fixed; top: 10px; right: 10px; z-index: 10000;
+      padding: 8px 12px; background: rgba(0,0,0,0.6);
+      color: #fff; border: none; border-radius: 4px; font-size: 14px;
     }
   </style>
 
-  <!-- ▼ センサー融合（移動平均＋EMA＋IMU）による GPS 補正 -->
+  <!-- ▼ センサー融合（移動平均＋EMA＋IMU）＋キャリブレーションオフセット -->
   <script>
   (function(){
-    // 元の watchPosition を保存
     const origWatch = navigator.geolocation.watchPosition.bind(navigator.geolocation);
 
-    // １）平滑化パラメータ
+    // 平滑化パラメータ
     const windowSize = 5, alpha = 0.2;
     let latBuf = [], lonBuf = [], emaLat, emaLon;
 
-    // ２）IMU（加速度）統合用
+    // IMU 用
     let velX = 0, velY = 0, lastMotionTime = null;
     window.addEventListener('devicemotion', e => {
       const t = e.timeStamp;
       if (lastMotionTime !== null) {
         const dt = (t - lastMotionTime) / 1000;
-        const ax = e.acceleration.x || 0;
-        const ay = e.acceleration.y || 0;
-        velX += ax * dt;
-        velY += ay * dt;
+        velX += (e.acceleration.x || 0) * dt;
+        velY += (e.acceleration.y || 0) * dt;
       }
       lastMotionTime = t;
     });
 
-    // オーバーライドして補正付きの watchPosition を提供
+    // キャリブレーションで求めたオフセット
+    window.calibOffLat = 0;
+    window.calibOffLon = 0;
+    // 最終的な GPS 値を保持
+    window.lastGpsLat = null;
+    window.lastGpsLon = null;
+
     navigator.geolocation.watchPosition = function(success, error, options) {
       return origWatch(function(pos) {
-        // ──────────
-        // A. GPS 平滑化（移動平均 → EMA）
-        // ──────────
+        // A. 移動平均 → EMA
         const rawLat = pos.coords.latitude;
         const rawLon = pos.coords.longitude;
-        latBuf.push(rawLat); if (latBuf.length > windowSize) latBuf.shift();
-        lonBuf.push(rawLon); if (lonBuf.length > windowSize) lonBuf.shift();
-        const avgLat = latBuf.reduce((a,b)=>a+b,0) / latBuf.length;
-        const avgLon = lonBuf.reduce((a,b)=>a+b,0) / lonBuf.length;
-        if (emaLat === undefined) {
-          emaLat = avgLat; emaLon = avgLon;
+        latBuf.push(rawLat); if (latBuf.length>windowSize) latBuf.shift();
+        lonBuf.push(rawLon); if (lonBuf.length>windowSize) lonBuf.shift();
+        const avgLat = latBuf.reduce((a,b)=>a+b,0)/latBuf.length;
+        const avgLon = lonBuf.reduce((a,b)=>a+b,0)/lonBuf.length;
+        if (emaLat===undefined) {
+          emaLat=avgLat; emaLon=avgLon;
         } else {
-          emaLat = alpha * avgLat + (1 - alpha) * emaLat;
-          emaLon = alpha * avgLon + (1 - alpha) * emaLon;
+          emaLat=alpha*avgLat + (1-alpha)*emaLat;
+          emaLon=alpha*avgLon + (1-alpha)*emaLon;
         }
-
-        // ──────────
-        // B. IMU 補正（速度→緯度経度オフセット）
-        // ──────────
-        const mPerDeg = 111000; // 1度あたり約111km
-        const dt = lastMotionTime ? (Date.now() - lastMotionTime) / 1000 : 0;
-        const dLat = (velY * dt) / mPerDeg;
-        const dLon = (velX * dt) / (mPerDeg * Math.cos(emaLat * Math.PI/180));
-
-        // 最終的に補正済みの座標を上書き
-        pos.coords.latitude  = emaLat + dLat;
-        pos.coords.longitude = emaLon + dLon;
-
-        // 元のコールバックに渡す
+        // B. IMU 補正
+        const mPerDeg=111000;
+        const dt = lastMotionTime ? (Date.now()-lastMotionTime)/1000 : 0;
+        const dLat = (velY * dt)/mPerDeg;
+        const dLon = (velX * dt)/(mPerDeg * Math.cos(emaLat*Math.PI/180));
+        let correctedLat = emaLat + dLat;
+        let correctedLon = emaLon + dLon;
+        // C. キャリブレーションオフセットを適用
+        correctedLat += window.calibOffLat;
+        correctedLon += window.calibOffLon;
+        // 最終値を pos に書き戻し
+        pos.coords.latitude  = correctedLat;
+        pos.coords.longitude = correctedLon;
+        // 最新 GPS を保存
+        window.lastGpsLat = correctedLat;
+        window.lastGpsLon = correctedLon;
         success(pos);
       }, error, options);
     };
   })();
   </script>
-  <!-- ▲ ここまでセンサー融合 -->
 </head>
 
 <body>
-  <!-- 手動リロードボタン -->
+  <!-- 再読み込みボタン -->
   <button id="reloadBtn">再読み込み</button>
 
   <!-- WebAR シーン -->
@@ -101,68 +95,102 @@
 
   <script>
     // ──────────
-    // 1. 静的マーカー配置
+    // 1. 静的マーカー配置（class="calib" を付与）
     // ──────────
-    window.addEventListener('load', () => {
-      axios.get('line_to_points.geojson')
-        .then(res => {
-          res.data.features.forEach(feature => {
-            if (feature.geometry.type === "Point") {
-              const [lon, lat] = feature.geometry.coordinates.map(parseFloat);
-              const marker = document.createElement('a-sphere');
-              // 一度だけ緯度経度→ワールド座標に変換して固定
-              marker.setAttribute('gps-projected-entity-place', `latitude: ${lat}; longitude: ${lon}`);
-              marker.setAttribute('radius', '0.5');
-              marker.setAttribute('color', 'blue');
-              document.querySelector('a-scene').appendChild(marker);
-            }
-          });
-        })
-        .catch(err => console.error('GeoJSON読み込み失敗:', err));
-    });
+    async function placeMarkers() {
+      const scene = document.querySelector('a-scene');
+      // 既存マーカー削除
+      document.querySelectorAll('.calib').forEach(el=>el.remove());
+      const res = await axios.get('line_to_points.geojson');
+      res.data.features.forEach(f=>{
+        if (f.geometry.type==='Point') {
+          const [lon, lat] = f.geometry.coordinates.map(parseFloat);
+          const marker = document.createElement('a-sphere');
+          marker.classList.add('calib');
+          // キャリブレーション後のオフセットは watchPosition で適用されるので
+          // 元の lat,lon を属性として保持
+          marker.setAttribute('data-lat', lat);
+          marker.setAttribute('data-lon', lon);
+          marker.setAttribute(
+            'gps-projected-entity-place',
+            `latitude: ${lat}; longitude: ${lon}`
+          );
+          marker.setAttribute('radius', '0.5');
+          marker.setAttribute('color', 'blue');
+          scene.appendChild(marker);
+        }
+      });
+    }
+    window.addEventListener('load', placeMarkers);
 
     // ──────────
-    // 2. 手動リロード
+    // 2. タップ補正：Raycast して距離を計算、キャリブレーションオフセット更新 → 再描画
     // ──────────
-    document.getElementById('reloadBtn').addEventListener('click', () => {
-      location.reload();
-    });
+    (function(){
+      const sceneEl = document.querySelector('a-scene');
+      const cameraEl = document.querySelector('a-camera');
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2();
+
+      sceneEl.addEventListener('click', evt => {
+        // 画面タップ位置を正規化
+        mouse.x = (evt.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = - (evt.clientY / window.innerHeight) * 2 + 1;
+        // Three.js カメラ取得
+        const cam3D = cameraEl.getObject3D('camera');
+        raycaster.setFromCamera(mouse, cam3D);
+        // 全マーカーを対象に intersect
+        const objs = Array.from(document.querySelectorAll('.calib'))
+                          .map(el=>el.object3D);
+        const hits = raycaster.intersectObjects(objs, true);
+        if (!hits.length) return alert('マーカーをタップしてください');
+        // ARワールド座標でのヒット位置
+        const hitPoint = hits[0].point;
+        // タップしたエンティティを特定
+        const el = hits[0].object.el;
+        const trueLat = parseFloat(el.getAttribute('data-lat'));
+        const trueLon = parseFloat(el.getAttribute('data-lon'));
+        // 現在の GPS 座標
+        const curLat = window.lastGpsLat;
+        const curLon = window.lastGpsLon;
+        if (curLat==null) return alert('GPS取得待ち...');
+        // ① GPS誤差オフセットを算出
+        const latOffset = trueLat - curLat;
+        const lonOffset = trueLon - curLon;
+        // ② グローバルにセット
+        window.calibOffLat = latOffset;
+        window.calibOffLon = lonOffset;
+        // ③ マーカー再配置
+        placeMarkers();
+        alert('キャリブレーション完了');
+      });
+    })();
 
     // ──────────
-    // 3. 自動リロード（100m 移動でページ再読み込み）
+    // 3. 手動リロード
+    // ──────────
+    document.getElementById('reloadBtn')
+      .addEventListener('click', ()=>location.reload());
+
+    // ──────────
+    // 4. 自動リロード（100m移動）
     // ──────────
     let initialLat = null, initialLon = null;
-    const THRESHOLD = 100; // メートル
-
-    function haversine(lat1, lon1, lat2, lon2) {
-      const R = 6371000, toRad = Math.PI/180;
-      const dLat = (lat2 - lat1) * toRad;
-      const dLon = (lon2 - lon1) * toRad;
-      const a = Math.sin(dLat/2)**2 +
-                Math.cos(lat1*toRad) * Math.cos(lat2*toRad) * Math.sin(dLon/2)**2;
-      return 2 * R * Math.asin(Math.sqrt(a));
+    const TH = 100;
+    function hav(lat1,lon1,lat2,lon2){
+      const R=6371000, r= Math.PI/180;
+      const d1=(lat2-lat1)*r, d2=(lon2-lon1)*r;
+      const a=Math.sin(d1/2)**2
+              +Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(d2/2)**2;
+      return 2*R*Math.asin(Math.sqrt(a));
     }
-
-    navigator.geolocation.watchPosition(pos => {
-      const lat = pos.coords.latitude;
-      const lon = pos.coords.longitude;
-      if (initialLat === null) {
-        initialLat = lat;
-        initialLon = lon;
-      } else {
-        const dist = haversine(initialLat, initialLon, lat, lon);
-        if (dist > THRESHOLD) {
-          console.log(`移動距離 ${Math.round(dist)}m を検出。ページを再読み込みします。`);
-          location.reload();
-        }
+    navigator.geolocation.watchPosition(pos=>{
+      const { latitude:lat, longitude:lon } = pos.coords;
+      if (initialLat===null){ initialLat=lat; initialLon=lon; }
+      else if (hav(initialLat, initialLon, lat, lon)>TH) {
+        location.reload();
       }
-    }, err => {
-      console.error('自動リロード用GPS取得エラー:', err);
-    }, {
-      enableHighAccuracy: true,
-      maximumAge: 1000,
-      timeout: 5000
-    });
+    }, console.error, { enableHighAccuracy:true, maximumAge:1000, timeout:5000});
   </script>
 </body>
 </html>
