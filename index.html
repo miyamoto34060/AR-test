@@ -16,6 +16,20 @@
       padding: 8px 12px; background: rgba(0,0,0,0.6);
       color: #fff; border: none; border-radius: 4px; font-size: 14px;
     }
+    
+    #toast{
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: taranslatex(-50%);
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 4px;
+      display: none;
+      z-index:10001;
+      font-size: 14px;
+    }
   </style>
 
   <!-- ▼ センサー融合（移動平均＋EMA＋IMU）＋キャリブレーションオフセット -->
@@ -85,6 +99,7 @@
 </head>
 
 <body>
+  <div id = "toast"></div>
   <!-- 再読み込みボタン -->
   <button id="reloadBtn">再読み込み</button>
 
@@ -94,6 +109,16 @@
   </a-scene>
 
   <script>
+    //-----------------------
+    //ヘルパー：非ブロッキングにメッセージを出す
+    function showToast(msg,duration = 2000){
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.style.display ='block';
+      clearTimeout(t._hideTimeout);
+      t._hideTimeout = setTimeout(()=> t.style.display = 'none',duration);
+    }
+   
     // ──────────
     // 1. 静的マーカー配置（class="calib" を付与）
     // ──────────
@@ -120,6 +145,22 @@
           scene.appendChild(marker);
         }
       });
+      
+      //ーーーーーーーーーー
+      //マーカ再配置のヘルパー
+      //ーーーーーーーーーー
+      function updateMarkers(){
+        document.querySelectorAll('.calib').forEach(el => {
+          const baseLat = parseFloat(el.getAttribute('data-lat'));
+          const baseLon = parseFloat(el.getAttribute('data-lon'));
+          const adjLat = baseLat + window.calibOffLat;
+          const adjLon = baseLon + window.calibOffLon;
+          el.setAttribute(
+            'gps-projected-entity-place',
+            'latitude:${adjlLat};longitude:${adjLon}'
+          )
+        })
+      }
     }
     window.addEventListener('load', placeMarkers);
 
@@ -172,7 +213,7 @@
         window.calibOffLat = latOffset;
         window.calibOffLon = lonOffset;
         // ③ マーカー再配置
-        placeMarkers();
+        updateMarkers();
         alert('キャリブレーション完了');
       });
     })();
