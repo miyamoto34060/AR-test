@@ -51,7 +51,7 @@
       const windowSize = 5, alpha = 0.2;
       let latBuf = [], lonBuf = [], emaLat, emaLon;
       let velX = 0, velY = 0, lastMotionTime = null;
-      // IMU 加速度取得
+
       window.addEventListener('devicemotion', e => {
         const t = e.timeStamp;
         if (lastMotionTime != null) {
@@ -61,10 +61,14 @@
         }
         lastMotionTime = t;
       });
-      // ラップして補正付き watchPosition
+
+      // 最終GPS格納
+      window.lastGpsLat = null;
+      window.lastGpsLon = null;
+
       navigator.geolocation.watchPosition = function(success, error, options){
         return origWatch(function(pos){
-          // 移動平均→EMA
+          // 平滑化
           const rawLat = pos.coords.latitude, rawLon = pos.coords.longitude;
           latBuf.push(rawLat); if (latBuf.length>windowSize) latBuf.shift();
           lonBuf.push(rawLon); if (lonBuf.length>windowSize) lonBuf.shift();
@@ -75,14 +79,18 @@
             emaLat = alpha*avgLat + (1-alpha)*emaLat;
             emaLon = alpha*avgLon + (1-alpha)*emaLon;
           }
-          // IMU補正
-          const mPerDeg=111000;
-          const dt = lastMotionTime ? (Date.now()-lastMotionTime)/1000 : 0;
+          // IMU 補正
+          const mPerDeg = 111000;
+          const dt = lastMotionTime? (Date.now()-lastMotionTime)/1000 : 0;
           const dLat = velY*dt/mPerDeg;
           const dLon = velX*dt/(mPerDeg*Math.cos(emaLat*Math.PI/180));
           // 書き戻し
-          pos.coords.latitude  = emaLat + dLat;
-          pos.coords.longitude = emaLon + dLon;
+          const cLat = emaLat + dLat;
+          const cLon = emaLon + dLon;
+          pos.coords.latitude  = cLat;
+          pos.coords.longitude = cLon;
+          window.lastGpsLat = cLat;
+          window.lastGpsLon = cLon;
           success(pos);
         }, error, options);
       };
@@ -104,31 +112,31 @@
 
   <!-- WebAR シーン -->
   <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: true;">
-    <!-- シーン全体を動かす親 -->
-    <a-entity id="sceneRoot">
-      <a-camera gps-camera rotation-reader></a-camera>
-    </a-entity>
+    <!-- カメラはここ -->
+    <a-camera gps-camera rotation-reader></a-camera>
+
+    <!-- マーカーだけをラップする親 -->
+    <a-entity id="sceneRoot"></a-entity>
   </a-scene>
 
   <script>
-    // トースト表示ヘルパー
-    function showToast(msg, duration=2000){
-      const t=document.getElementById('toast');
+    function showToast(msg,d=2000){
+      const t = document.getElementById('toast');
       t.innerText=msg; t.style.display='block';
       clearTimeout(t._hideTimeout);
-      t._hideTimeout=setTimeout(()=>t.style.display='none',duration);
+      t._hideTimeout=setTimeout(()=>t.style.display='none',d);
     }
 
     // 初回マーカー配置
     async function placeMarkers(){
-      const root=document.querySelector('#sceneRoot');
+      const root = document.querySelector('#sceneRoot');
       document.querySelectorAll('.calib').forEach(el=>el.remove());
       try {
-        const res=await axios.get('line_to_points.geojson');
+        const res = await axios.get('line_to_points.geojson');
         res.data.features.forEach(f=>{
           if(f.geometry.type==='Point'){
-            const [lon,lat]=f.geometry.coordinates.map(parseFloat);
-            const m=document.createElement('a-sphere');
+            const [lon,lat] = f.geometry.coordinates.map(parseFloat);
+            const m = document.createElement('a-sphere');
             m.classList.add('calib');
             m.setAttribute('data-lat',lat);
             m.setAttribute('data-lon',lon);
@@ -140,51 +148,48 @@
           }
         });
       } catch(e){
-        console.error('GeoJSON読み込み失敗',e);
+        console.error(e);
       }
     }
     window.addEventListener('load',placeMarkers);
 
-    // タップ補正（シーン全体を移動）
+    // タップ補正：シーン全体を動かす
     (function(){
-      const sceneEl=document.querySelector('a-scene');
-      const camEl=document.querySelector('a-camera');
-      const raycaster=new THREE.Raycaster();
-      const mouse=new THREE.Vector2();
-      let pendingEl=null;
+      const sceneEl = document.querySelector('a-scene');
+      const camEl   = document.querySelector('a-camera');
+      const root3D  = document.querySelector('#sceneRoot').object3D;
+      const ray     = new THREE.Raycaster();
+      const m2      = new THREE.Vector2();
+      let pendingEl = null;
 
-      sceneEl.addEventListener('click',evt=>{
-        mouse.x=(evt.clientX/window.innerWidth)*2-1;
-        mouse.y=-(evt.clientY/window.innerHeight)*2+1;
-        const cam3=camEl.getObject3D('camera');
-        raycaster.setFromCamera(mouse,cam3);
-        const meshes=Array.from(document.querySelectorAll('.calib'))
-          .map(el=>el.getObject3D('mesh')).filter(m=>m);
-        const hits=raycaster.intersectObjects(meshes,true);
+      sceneEl.addEventListener('click', evt=>{
+        m2.x = (evt.clientX/window.innerWidth)*2-1;
+        m2.y = -(evt.clientY/window.innerHeight)*2+1;
+        const cam3 = camEl.getObject3D('camera');
+        ray.setFromCamera(m2, cam3);
+        const meshes = Array.from(document.querySelectorAll('.calib'))
+          .map(el=>el.getObject3D('mesh')).filter(x=>x);
+        const hits = ray.intersectObjects(meshes,true);
         if(!hits.length){
           showToast('マーカーをタップしてください');
           return;
         }
-        pendingEl=hits[0].object.el;
+        pendingEl = hits[0].object.el;
         document.getElementById('confirmUI').style.display='block';
       });
 
-      // はい：シーン移動で補正
       document.getElementById('confirmYes').onclick=()=>{
         document.getElementById('confirmUI').style.display='none';
         if(!pendingEl) return;
-        const markerPos=new THREE.Vector3();
+        const markerPos = new THREE.Vector3();
         pendingEl.object3D.getWorldPosition(markerPos);
-        const camPos=new THREE.Vector3();
+        const camPos = new THREE.Vector3();
         camEl.object3D.getWorldPosition(camPos);
-        const offsetVec=new THREE.Vector3().subVectors(markerPos,camPos);
-        // 親ノードを逆方向に動かす
-        const root3D=document.querySelector('#sceneRoot').object3D;
-        root3D.position.sub(offsetVec);
+        const offset = new THREE.Vector3().subVectors(markerPos, camPos);
+        root3D.position.sub(offset);
         showToast('キャリブレーション完了');
         pendingEl=null;
       };
-      // いいえ：キャンセル
       document.getElementById('confirmNo').onclick=()=>{
         document.getElementById('confirmUI').style.display='none';
         pendingEl=null;
@@ -198,23 +203,22 @@
       location.reload();
     };
 
-    // 自動リロード（100m移動）
-    let initLat=null, initLon=null, TH=100;
-    function hav(lat1,lon1,lat2,lon2){
+    // 自動リロード（100m）
+    let initLat=null,initLon=null,TH=100;
+    function hav(a,b,c,d){
       const R=6371000,r=Math.PI/180;
-      const d1=(lat2-lat1)*r, d2=(lon2-lon1)*r;
-      const a=Math.sin(d1/2)**2
-              +Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(d2/2)**2;
-      return 2*R*Math.asin(Math.sqrt(a));
+      const d1=(c-a)*r,d2=(d-b)*r;
+      const A=Math.sin(d1/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin(d2/2)**2;
+      return 2*R*Math.asin(Math.sqrt(A));
     }
     navigator.geolocation.watchPosition(pos=>{
-      const {latitude:la,longitude:lo}=pos.coords;
+      const la=pos.coords.latitude, lo=pos.coords.longitude;
       if(initLat===null){ initLat=la; initLon=lo; }
       else if(hav(initLat,initLon,la,lo)>TH){
         showToast('大幅移動を検出、再読み込みします');
         location.reload();
       }
-    },console.error,{enableHighAccuracy:true,maximumAge:1000,timeout:5000});
+    }, console.error, { enableHighAccuracy:true,maximumAge:1000,timeout:5000 });
   </script>
 </body>
 </html>
