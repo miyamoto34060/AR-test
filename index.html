@@ -153,9 +153,7 @@
         // ARワールド座標でのヒット位置
         const hitPoint = hits[0].point;
         // タップしたエンティティを特定
-        const el = hits[0].object.el;
-
-        //intersectObject すると hits[0].object は Mexh。その元エンティティをとるには
+        //intersectObject すると hits[0].object は Mesh。その元エンティティをとるには
         const mexh = hits[0].object;
         const el = mexh.el; //A-Frame　が　Mesh.elを自動でセットしてくれます
 
